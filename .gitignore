@@ -1,0 +1,27 @@
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+venv/
+env/
+*.egg-info/
+
+# ---- Large model files (exceed GitHub limits, regenerate via training scripts) ----
+models/*.h5
+models/*.keras
+hand_landmarker.task
+
+# ---- Datasets (large, regenerate via convert/collect scripts, or re-download from Kaggle) ----
+data/asl_alphabet_train/
+data/asl_alphabet_test/
+data/asl_dataset_digits/
+data/asl_numbers_train/
+data/include_words/
+data/isl_landmarks.csv
+data/asl_landmarks.csv
+data/*.npy
+
+# ---- Frontend ----
+frontend/node_modules/
+frontend/dist/
+frontend/.v

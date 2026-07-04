@@ -1,0 +1,14 @@
+# Auto-normalize text files and avoid CRLF/LF warnings on Windows
+* text=auto
+
+# Force LF for common text files to keep consistent repository line endings
+*.sh text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+
+# Keep .gitignore consistent
+frontend/.gitignore text eol=lf
+
+# Treat node_modules as binary (do not attempt line normalization)
+frontend/node_modules/** -text
