@@ -1,196 +1,145 @@
-/**
- * frontend/src/hooks/useWordDetection.js
- *
- * Same CDN/window approach as useSignDetection.js — does NOT import
- * @mediapipe/hands or @mediapipe/camera_utils via npm, since those
- * packages break Vite's ESM pre-bundler. Requires the same two
- * <script> tags in index.html (you should already have them there
- * from fixing letter mode):
- *
- *   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
- *   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
- *
- * npm install socket.io-client   (only this one needs npm)
- *
- * Word mode is fundamentally different from letter mode:
- *   - tracks TWO hands (not one)
- *   - selfieMode is OFF, because preprocess_words.py processed raw
- *     (non-mirrored) video files — matching that at inference time
- *     matters, so screen-mirroring is done with CSS instead, never
- *     by flipping the actual landmark data sent to the model
- *   - doesn't stream every frame; the user presses and holds a
- *     "Record sign" button, frames are buffered locally for ~1.5s,
- *     then the whole 30-frame sequence is sent once
- */
+// frontend/src/hooks/useWordDetection.js
+//
+// Continuous word-mode detection - no hold button. Maintains a rolling
+// window of the last 30 frames of single-hand landmarks, and periodically
+// sends that window for a word prediction, similar in spirit to how
+// useSignDetection streams every frame for letters.
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback } from "react";
 import { io } from "socket.io-client";
 
 const BACKEND_URL = "http://localhost:5000";
 const SEQ_LEN = 30;
-const MISSING_HAND = new Array(63).fill(-1.0);
+const PREDICT_EVERY_N_FRAMES = 3; // throttle how often we ask the backend
+const STABLE_REPEATS_NEEDED = 2;  // keep at 2 - going to 1 risks single-frame misfiresword must repeat this many predictions in a row
+const MIN_CONFIDENCE = 0.6;
 
-/** Converts one MediaPipe Hands result into the same 127-value vector
- *  preprocess_words.py builds: [uses_two_hands] + left(63) + right(63) */
-function resultsToFeatureVector(results) {
-  let left = MISSING_HAND;
-  let right = MISSING_HAND;
-
-  const landmarksList = results.multiHandLandmarks || [];
-  const handednessList = results.multiHandedness || [];
-
-  landmarksList.forEach((landmarks, i) => {
-    const flat = [];
-    landmarks.forEach((lm) => flat.push(lm.x, lm.y, lm.z));
-    const label = handednessList[i]?.label; // "Left" | "Right"
-    if (label === "Left") left = flat;
-    else if (label === "Right") right = flat;
-  });
-
-  const usesTwoHands = left !== MISSING_HAND && right !== MISSING_HAND ? 1.0 : 0.0;
-  return [usesTwoHands, ...left, ...right];
-}
-
-export function useWordDetection({ onWord } = {}) {
-  const videoRef = useRef(null);
+export function useWordDetection() {
   const socketRef = useRef(null);
   const bufferRef = useRef([]);
-  const recordingRef = useRef(false);
-  const lastFeatureRef = useRef([0.0, ...MISSING_HAND, ...MISSING_HAND]);
+  const frameCounterRef = useRef(0);
+  const stableWordRef = useRef(null);
+  const stableCountRef = useRef(0);
+  const lastConfirmedRef = useRef(null);
+  const cooldownRef = useRef(0);
 
   const [connected, setConnected] = useState(false);
-  const [recording, setRecording] = useState(false);
-  const [bufferProgress, setBufferProgress] = useState(0); // 0-30
+  const [running, setRunning] = useState(true);
   const [predictedWord, setPredictedWord] = useState(null);
-  const [confidence, setConfidence] = useState(0);
-  const [status, setStatus] = useState("idle"); // idle | recording | processing | low_confidence
-  const [mediapipeReady, setMediapipeReady] = useState(false);
+  const [wordConfidence, setWordConfidence] = useState(0);
+  const [bufferProgress, setBufferProgress] = useState(0);
+  const [sentence, setSentence] = useState("");
+  const [log, setLog] = useState([]);
+  const [totalWords, setTotalWords] = useState(0);
 
-  // 1. socket connection
-  useEffect(() => {
-    const socket = io(BACKEND_URL, { transports: ["websocket"] });
-    socketRef.current = socket;
-
+  const ensureSocket = useCallback(() => {
+    if (socketRef.current) return socketRef.current;
+    const socket = io(BACKEND_URL, {
+      transports: ["websocket"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
+    });
     socket.on("connect", () => setConnected(true));
     socket.on("disconnect", () => setConnected(false));
 
     socket.on("word_prediction", ({ word, confidence }) => {
-      setConfidence(confidence);
-      if (word) {
-        setPredictedWord(word);
-        setStatus("idle");
-        onWord && onWord(word, confidence);
+      setPredictedWord(word);
+      setWordConfidence(confidence);
+
+      if (!word || confidence < MIN_CONFIDENCE) {
+        stableWordRef.current = null;
+        stableCountRef.current = 0;
+        return;
+      }
+
+      if (word === stableWordRef.current) {
+        stableCountRef.current += 1;
       } else {
-        setStatus("low_confidence");
+        stableWordRef.current = word;
+        stableCountRef.current = 1;
+      }
+
+      // cooldown avoids re-confirming the same held sign repeatedly
+      if (cooldownRef.current > 0) {
+        cooldownRef.current -= 1;
+        return;
+      }
+
+      if (stableCountRef.current >= STABLE_REPEATS_NEEDED && word !== lastConfirmedRef.current) {
+        setSentence((s) => (s ? `${s} ${word}` : word));
+        setTotalWords((n) => n + 1);
+        setLog((prev) => [
+          { time: new Date().toTimeString().slice(0, 8), sign: word, conf: confidence },
+          ...prev,
+        ].slice(0, 6));
+        lastConfirmedRef.current = word;
+        cooldownRef.current = 4; // ignore repeats for the next ~4 predictions
+        stableCountRef.current = 0;
       }
     });
 
-    socket.on("word_prediction_error", (err) => {
-      console.error("[word] backend error:", err);
-      setStatus("idle");
-    });
+    socket.on("word_prediction_error", (err) => console.warn("[word_prediction_error]", err));
+    socketRef.current = socket;
+    return socket;
+  }, []);
 
-    return () => socket.disconnect();
-  }, [onWord]);
+  // Called every frame from useSignDetection's MediaPipe loop via the
+  // window.__wordModePushFrame bridge (see SignLanguageDashboard.jsx).
+  const pushFrame = useCallback((landmarks) => {
+    if (!running) return;
 
-  // 2. MediaPipe Hands, two-hand tracking, selfieMode OFF
-  useEffect(() => {
-    if (!videoRef.current) return;
+    const flat = landmarks
+      ? landmarks.flatMap((p) => [p.x, p.y, p.z])
+      : new Array(63).fill(0);
 
-    if (typeof window.Hands === "undefined" || typeof window.Camera === "undefined") {
-      console.error(
-        "[useWordDetection] window.Hands / window.Camera not found. " +
-        "Add the MediaPipe <script> tags to index.html — see the comment " +
-        "at the top of this file."
-      );
-      return;
+    bufferRef.current.push(flat);
+    if (bufferRef.current.length > SEQ_LEN) {
+      bufferRef.current.shift();
     }
-    setMediapipeReady(true);
+    setBufferProgress(bufferRef.current.length);
 
-    const hands = new window.Hands({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`,
-    });
-    hands.setOptions({
-      maxNumHands: 2,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-      selfieMode: false, // must match how preprocess_words.py read the training videos
-    });
+    if (bufferRef.current.length === SEQ_LEN) {
+      frameCounterRef.current += 1;
+      if (frameCounterRef.current >= PREDICT_EVERY_N_FRAMES) {
+        frameCounterRef.current = 0;
 
-    hands.onResults((results) => {
-      const feature = resultsToFeatureVector(results);
-      lastFeatureRef.current = feature;
+        // Skip prediction if any frame in this window has no hand
+        // (all-zero) - that means the window spans a transition, not
+        // a clean held sign, and would bias toward whatever training
+        // class looks closest to "low motion."
+        const hasGap = bufferRef.current.some((frame) => frame.every((v) => v === 0));
+        if (hasGap) return;
 
-      if (recordingRef.current) {
-        bufferRef.current.push(feature);
-        setBufferProgress(bufferRef.current.length);
-
-        if (bufferRef.current.length >= SEQ_LEN) {
-          finishRecording();
+        const socket = ensureSocket();
+        if (socket.connected) {
+          socket.emit("word_sequence", { sequence: bufferRef.current.slice() });
         }
       }
-    });
-
-    const camera = new window.Camera(videoRef.current, {
-      onFrame: async () => {
-        await hands.send({ image: videoRef.current });
-      },
-      width: 640,
-      height: 480,
-    });
-    camera.start();
-
-    return () => {
-      camera.stop();
-      hands.close();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const finishRecording = useCallback(() => {
-    recordingRef.current = false;
-    setRecording(false);
-    setStatus("processing");
-
-    // pad/trim to exactly SEQ_LEN in case the last frame arrived late
-    let seq = bufferRef.current.slice(0, SEQ_LEN);
-    while (seq.length < SEQ_LEN) seq.push(lastFeatureRef.current);
-
-    if (socketRef.current?.connected) {
-      socketRef.current.emit("word_sequence", { sequence: seq });
-    } else {
-      setStatus("idle");
     }
+  }, [running, ensureSocket]);
 
-    bufferRef.current = [];
-    setBufferProgress(0);
+  const clearSentence = useCallback(() => setSentence(""), []);
+  const undoLastWord = useCallback(() => {
+    setSentence((s) => {
+      const parts = s.trim().split(" ");
+      parts.pop();
+      return parts.join(" ");
+    });
   }, []);
-
-  const startRecording = useCallback(() => {
-    bufferRef.current = [];
-    setBufferProgress(0);
-    setPredictedWord(null);
-    recordingRef.current = true;
-    setRecording(true);
-    setStatus("recording");
-  }, []);
-
-  const stopRecording = useCallback(() => {
-    // allows releasing the button early; pads out the rest of the sequence
-    if (recordingRef.current) finishRecording();
-  }, [finishRecording]);
+  const speak = useCallback(() => {
+    if ("speechSynthesis" in window && sentence) {
+      window.speechSynthesis.speak(new SpeechSynthesisUtterance(sentence));
+    }
+  }, [sentence]);
 
   return {
-    videoRef,
-    connected,
-    recording,
-    bufferProgress,   // 0-30, drive a progress ring/bar in the UI
-    predictedWord,
-    confidence,
-    status,
-    mediapipeReady,
-    startRecording,   // call on button mousedown/touchstart
-    stopRecording,    // call on button mouseup/touchend
+    connected, running, setRunning,
+    predictedWord, wordConfidence, bufferProgress,
+    sentence, log, totalWords,
+    clearSentence, undoLastWord, speak,
+    pushFrame,
   };
 }

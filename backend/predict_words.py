@@ -1,28 +1,25 @@
 """
 backend/predict_words.py
 
-Loads the trained word-level LSTM (models/word_lstm.h5) and exposes
+Loads the trained word-level LSTM (models/asl_word_lstm.h5) and exposes
 WordPredictor.predict(sequence) for app.py to call.
 
-CRITICAL: the feature format here must exactly match what
-src/preprocess_words.py produced during training:
+Matches src/train_asl_words_model.py and src/collect_asl_words.py exactly:
 
-    127 floats per frame =
-        [uses_two_hands_flag] + [left_hand: 21 landmarks * (x,y,z)] + [right_hand: same]
+    63 floats per frame = single hand, 21 landmarks * (x, y, z)
+    Missing hand -> 63 values of 0.0 (zero-fill sentinel)
+    30 frames per sequence
 
-    Missing hand -> 63 values of -1.0 (MISSING_HAND sentinel)
-
-The frontend hook (useWordDetection.js) is responsible for building
-frames in this exact shape and buffering 30 of them before sending.
+The frontend hook (useWordDetection.js) builds frames in this exact
+shape and buffers 30 of them before sending.
 """
 
 import json
 import numpy as np
 import tensorflow as tf
 
-MISSING_HAND = [-1.0] * 63
 SEQ_LEN = 30
-FEATURE_DIM = 127
+FEATURE_DIM = 63
 
 
 class WordPredictor:
@@ -33,21 +30,21 @@ class WordPredictor:
         try:
             self.model = tf.keras.models.load_model(model_path)
             with open(label_map_path, "r") as f:
-                self.label_map = json.load(f)  # {"0": "good", "1": "hot", ...}
+                self.label_map = json.load(f)  # {"0": "hello", "1": "yes", "2": "no"}
             self.is_loaded = True
             print(f"[predict_words] model loaded from {model_path}, {len(self.label_map)} words")
         except Exception as e:
             print(f"[predict_words] WARNING: could not load word model ({e}). "
-                  f"Word mode will return random words until models/word_lstm.h5 "
-                  f"and models/word_label_map.json exist.")
+                  f"Word mode will return random words until "
+                  f"models/asl_word_lstm.h5 and models/asl_word_label_map.json exist.")
             self.model = None
-            self.label_map = {"0": "hello", "1": "thank_you", "2": "sorry"}
+            self.label_map = {"0": "hello", "1": "yes", "2": "no"}
 
     def predict(self, sequence):
         """
-        sequence: list of 30 frames, each a list of 127 floats
+        sequence: list of 30 frames, each a list of 63 floats
                   (exactly what useWordDetection.js buffers and sends)
-        returns: (word: str, confidence: float) or (None, 0.0) if below threshold
+        returns: (word: str, confidence: float) or (None, confidence) if below threshold
         """
         if self.model is None:
             import random

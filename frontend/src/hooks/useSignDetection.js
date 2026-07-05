@@ -38,7 +38,16 @@ export function useSignDetection(canvasRef) {
   const [totalSigns, setTotalSigns] = useState(0);
 
   useEffect(() => {
-    const socket = io(BACKEND_URL, { transports: ["websocket"] });
+    const socket = io(BACKEND_URL, {
+      transports: ["websocket"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
+    });
+
+
     socketRef.current = socket;
 
     socket.on("connect", () => setConnected(true));
@@ -127,9 +136,9 @@ export function useSignDetection(canvasRef) {
       ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
 
       const rawHands = results.multiHandLandmarks || [];
+      const landmarks = rawHands.length > 0 ? rawHands[0] : null;
 
-      if (rawHands.length > 0) {
-        const landmarks = rawHands[0];
+      if (landmarks) {
         drawConnectors(ctx, landmarks, HAND_CONNECTIONS, { color: ACCENT_COLOR, lineWidth: 2 });
         drawLandmarks(ctx, landmarks, { color: ACCENT_COLOR, radius: 3 });
         setHandDetected(true);
@@ -138,9 +147,18 @@ export function useSignDetection(canvasRef) {
           const points = landmarks.map((p) => [p.x, p.y, p.z]);
           socketRef.current.emit("frame", { landmarks: points });
         }
+        // Bridge to word-mode recording, if active (see SignLanguageDashboard.jsx)
+        if (window.__wordModePushFrame) {
+          window.__wordModePushFrame(landmarks);
+        }
       } else {
         setHandDetected(false);
       }
+
+      // Fires every frame, hand or no hand — matches how collect_asl_words.py
+      // recorded training clips (a no-hand frame still counts, isn't skipped).
+      window.__wordModePushFrame?.(landmarks);
+
       ctx.restore();
     });
 

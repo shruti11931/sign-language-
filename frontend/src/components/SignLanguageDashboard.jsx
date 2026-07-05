@@ -1,6 +1,7 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Hand, Volume2, Delete, RotateCcw, Radio, Sun, Moon } from "lucide-react";
 import { useSignDetection } from "../hooks/useSignDetection";
+import { useWordDetection } from "../hooks/useWordDetection";
 
 const THEMES = {
   dark: {
@@ -26,23 +27,36 @@ export default function SignLanguageDashboard() {
   const t = THEMES[theme];
   const canvasRef = useRef(null);
 
+  const [mode, setMode] = useState("letter"); // "letter" | "word"
+
   const sign = useSignDetection(canvasRef);
+  const word = useWordDetection();
+
   const [cursorOn, setCursorOn] = useState(true);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const blink = setInterval(() => setCursorOn((c) => !c), 500);
     return () => clearInterval(blink);
   }, []);
+
+  // Bridge: useSignDetection's MediaPipe loop calls window.__wordModePushFrame
+  // on every frame (see useSignDetection.js), which feeds word mode's rolling buffer.
+  useEffect(() => {
+    window.__wordModePushFrame = word.pushFrame;
+    return () => { window.__wordModePushFrame = null; };
+  }, [word.pushFrame]);
 
   const confColor = sign.confidence > 0.85 ? t.success : sign.confidence > 0.7 ? t.accent : t.alert;
   const avgConfidence = sign.log.length
     ? Math.round((sign.log.reduce((sum, r) => sum + r.conf, 0) / sign.log.length) * 100)
     : 0;
 
+  const wordConfColor = word.wordConfidence > 0.85 ? t.success : word.wordConfidence > 0.7 ? t.accent : t.alert;
+
   const s = {
     page: { minHeight: "100vh", width: "100%", background: t.bg, fontFamily: "Inter, sans-serif", transition: "background 0.3s ease" },
     wrap: { maxWidth: 960, margin: "0 auto", padding: "32px 24px" },
-    header: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28, flexWrap: "wrap", gap: 12 },
+    header: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 },
     headerLeft: { display: "flex", alignItems: "center", gap: 12 },
     logoCircle: { width: 42, height: 42, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: t.surface2, flexShrink: 0 },
     title: { fontFamily: "'Space Grotesk', sans-serif", fontSize: 22, fontWeight: 600, color: t.text, margin: 0 },
@@ -50,7 +64,12 @@ export default function SignLanguageDashboard() {
     headerBtns: { display: "flex", alignItems: "center", gap: 10 },
     themeBtn: { width: 36, height: 36, borderRadius: "50%", border: `1px solid ${t.border}`, background: t.surface, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" },
     connDot: { display: "flex", alignItems: "center", gap: 6, fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: t.muted },
-    liveBtn: { display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 999, fontSize: 13, fontWeight: 500, border: "none", cursor: "pointer", background: sign.running ? t.successBg : t.alertBg, color: sign.running ? t.success : t.alert },
+    liveBtn: (running) => ({ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: 999, fontSize: 13, fontWeight: 500, border: "none", cursor: "pointer", background: running ? t.successBg : t.alertBg, color: running ? t.success : t.alert }),
+    modeRow: { display: "flex", gap: 8, marginBottom: 20 },
+    modeBtn: (active) => ({
+      padding: "8px 18px", borderRadius: 999, fontSize: 13, fontWeight: 600, border: `1px solid ${active ? t.accent : t.border}`,
+      cursor: "pointer", background: active ? t.accentBg : t.surface, color: active ? t.accent : t.muted,
+    }),
     grid: { display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 16, marginBottom: 16 },
     card: { background: t.surface, border: `1px solid ${t.border}`, borderRadius: 16, padding: 16 },
     label: { fontFamily: "'JetBrains Mono', monospace", fontSize: 11, letterSpacing: 0.5, color: t.muted, margin: "0 0 12px", textTransform: "uppercase" },
@@ -58,11 +77,13 @@ export default function SignLanguageDashboard() {
     camCanvas: { width: "100%", height: "auto", display: "block", borderRadius: 12 },
     camTag: { position: "absolute", bottom: 10, left: 10, fontFamily: "'JetBrains Mono', monospace", fontSize: 11, padding: "4px 8px", borderRadius: 6, background: theme === "dark" ? "rgba(20,24,31,0.85)" : "rgba(255,255,255,0.85)", color: t.muted },
     camFps: { position: "absolute", top: 10, right: 10, display: "flex", alignItems: "center", gap: 6, fontFamily: "'JetBrains Mono', monospace", fontSize: 11, padding: "4px 8px", borderRadius: 6, background: theme === "dark" ? "rgba(20,24,31,0.85)" : "rgba(255,255,255,0.85)", color: t.text },
+    bufferTag: { position: "absolute", bottom: 10, right: 10, display: "flex", alignItems: "center", gap: 6, fontFamily: "'JetBrains Mono', monospace", fontSize: 11, padding: "4px 8px", borderRadius: 6, background: theme === "dark" ? "rgba(20,24,31,0.85)" : "rgba(255,255,255,0.85)", color: t.text },
     camHint: { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: t.muted, background: theme === "dark" ? "rgba(20,24,31,0.85)" : "rgba(255,255,255,0.85)", padding: "6px 12px", borderRadius: 8 },
     dot: (color) => ({ width: 6, height: 6, borderRadius: "50%", background: color }),
     rightCol: { display: "flex", flexDirection: "column", gap: 16 },
     predictCard: { background: t.surface, border: `1px solid ${t.border}`, borderRadius: 16, padding: 22, textAlign: "center" },
     bigSign: { fontFamily: "'Space Grotesk', sans-serif", fontSize: 52, fontWeight: 700, color: t.text, margin: "4px 0", minHeight: 62 },
+    bigWord: { fontFamily: "'Space Grotesk', sans-serif", fontSize: 32, fontWeight: 700, color: t.text, margin: "4px 0", minHeight: 62, wordBreak: "break-word" },
     confBar: { height: 6, borderRadius: 999, background: t.canvasBg, overflow: "hidden", marginTop: 10 },
     confFill: { height: "100%", borderRadius: 999, transition: "width 0.4s ease, background 0.4s ease" },
     confLabel: { fontFamily: "'JetBrains Mono', monospace", fontSize: 12, marginTop: 8 },
@@ -85,6 +106,9 @@ export default function SignLanguageDashboard() {
     footer: { textAlign: "center", fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: t.faint, marginTop: 24 },
   };
 
+  const activeConnected = mode === "letter" ? sign.connected : word.connected;
+  const activeHandDetected = sign.handDetected; // shared MediaPipe loop drives both modes
+
   return (
     <div style={s.page}>
       <style>{`
@@ -101,22 +125,36 @@ export default function SignLanguageDashboard() {
             <div style={s.logoCircle}><Hand size={19} color={t.accent} /></div>
             <div>
               <p style={s.title}>Sign to Speech</p>
-              <p style={s.subtitle}>Fingerspelling translator — alphabet &amp; digits</p>
+              <p style={s.subtitle}>
+                {mode === "letter" ? "Fingerspelling translator — alphabet & digits" : "Word sign translator"}
+              </p>
             </div>
           </div>
           <div style={s.headerBtns}>
             <span style={s.connDot}>
-              <span style={s.dot(sign.connected ? t.success : t.alert)} />
-              {sign.connected ? "Backend connected" : "Backend offline"}
+              <span style={s.dot(activeConnected ? t.success : t.alert)} />
+              {activeConnected ? "Backend connected" : "Backend offline"}
             </span>
             <button style={s.themeBtn} onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle theme">
               {theme === "dark" ? <Sun size={16} color={t.muted} /> : <Moon size={16} color={t.muted} />}
             </button>
-            <button style={s.liveBtn} onClick={() => sign.setRunning((r) => !r)}>
-              <Radio size={13} />
-              {sign.running ? "Live" : "Paused"}
-            </button>
+            {mode === "letter" ? (
+              <button style={s.liveBtn(sign.running)} onClick={() => sign.setRunning((r) => !r)}>
+                <Radio size={13} />
+                {sign.running ? "Live" : "Paused"}
+              </button>
+            ) : (
+              <button style={s.liveBtn(word.running)} onClick={() => word.setRunning((r) => !r)}>
+                <Radio size={13} />
+                {word.running ? "Live" : "Paused"}
+              </button>
+            )}
           </div>
+        </div>
+
+        <div style={s.modeRow}>
+          <button style={s.modeBtn(mode === "letter")} onClick={() => setMode("letter")}>Letters &amp; Digits</button>
+          <button style={s.modeBtn(mode === "word")} onClick={() => setMode("word")}>Words</button>
         </div>
 
         <div style={s.grid} className="sl-grid">
@@ -124,7 +162,7 @@ export default function SignLanguageDashboard() {
             <p style={s.label}>Camera feed</p>
             <div style={s.camBox}>
               <canvas ref={canvasRef} width={480} height={360} style={s.camCanvas} />
-              {!sign.handDetected && (
+              {!activeHandDetected && (
                 <span style={s.camHint}>Show your hand to the camera</span>
               )}
               <span style={s.camTag}>21 landmarks tracked</span>
@@ -132,31 +170,66 @@ export default function SignLanguageDashboard() {
                 <span style={s.dot(sign.running ? t.success : t.alert)} />
                 {sign.fps} fps
               </span>
+
+              {mode === "word" && (
+                <span style={s.bufferTag}>
+                  <span style={s.dot(word.bufferProgress === 30 ? t.success : t.accent)} />
+                  buffer {word.bufferProgress}/30
+                </span>
+              )}
             </div>
           </div>
 
           <div style={s.rightCol}>
-            <div style={s.predictCard}>
-              <p style={s.label}>Detected sign</p>
-              <p style={s.bigSign}>{sign.currentSign || "—"}</p>
-              <div style={s.confBar}>
-                <div style={{ ...s.confFill, width: `${sign.confidence * 100}%`, background: confColor }} />
-              </div>
-              <p style={{ ...s.confLabel, color: confColor }}>
-                {sign.currentSign ? `${Math.round(sign.confidence * 100)}% confidence` : "waiting for hand..."}
-              </p>
-            </div>
+            {mode === "letter" ? (
+              <>
+                <div style={s.predictCard}>
+                  <p style={s.label}>Detected sign</p>
+                  <p style={s.bigSign}>{sign.currentSign || "—"}</p>
+                  <div style={s.confBar}>
+                    <div style={{ ...s.confFill, width: `${sign.confidence * 100}%`, background: confColor }} />
+                  </div>
+                  <p style={{ ...s.confLabel, color: confColor }}>
+                    {sign.currentSign ? `${Math.round(sign.confidence * 100)}% confidence` : "waiting for hand..."}
+                  </p>
+                </div>
 
-            <div style={s.statsRow}>
-              <div style={s.statBox}>
-                <p style={s.statLabel}>AVG CONFIDENCE</p>
-                <p style={s.statVal}>{avgConfidence}%</p>
-              </div>
-              <div style={s.statBox}>
-                <p style={s.statLabel}>SIGNS LOGGED</p>
-                <p style={s.statVal}>{sign.totalSigns}</p>
-              </div>
-            </div>
+                <div style={s.statsRow}>
+                  <div style={s.statBox}>
+                    <p style={s.statLabel}>AVG CONFIDENCE</p>
+                    <p style={s.statVal}>{avgConfidence}%</p>
+                  </div>
+                  <div style={s.statBox}>
+                    <p style={s.statLabel}>SIGNS LOGGED</p>
+                    <p style={s.statVal}>{sign.totalSigns}</p>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={s.predictCard}>
+                  <p style={s.label}>Detected word</p>
+                  <p style={s.bigWord}>{word.predictedWord || "—"}</p>
+                  <div style={s.confBar}>
+                    <div style={{ ...s.confFill, width: `${word.wordConfidence * 100}%`, background: wordConfColor }} />
+                  </div>
+                  <p style={{ ...s.confLabel, color: wordConfColor }}>
+                    {word.predictedWord ? `${Math.round(word.wordConfidence * 100)}% confidence` : "show your hand and sign a word..."}
+                  </p>
+                </div>
+
+                <div style={s.statsRow}>
+                  <div style={s.statBox}>
+                    <p style={s.statLabel}>WORDS LOGGED</p>
+                    <p style={s.statVal}>{word.totalWords}</p>
+                  </div>
+                  <div style={s.statBox}>
+                    <p style={s.statLabel}>BUFFER</p>
+                    <p style={s.statVal}>{word.bufferProgress}/30</p>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -164,44 +237,88 @@ export default function SignLanguageDashboard() {
           <div style={s.captionHeader}>
             <p style={{ ...s.label, margin: 0 }}>Translated caption</p>
             <div style={s.btnRow}>
-              <button style={s.pillBtn(t.accentBg, t.accent)} onClick={sign.speak}>
-                <Volume2 size={13} /> Speak
-              </button>
-              <button style={s.pillBtn(t.surface2, t.muted)} onClick={sign.undoLastLetter}>
-                <Delete size={13} /> Undo
-              </button>
-              <button style={s.pillBtn(t.surface2, t.muted)} onClick={sign.clearSentence}>
-                <RotateCcw size={13} /> Clear
-              </button>
+              {mode === "letter" ? (
+                <>
+                  <button style={s.pillBtn(t.accentBg, t.accent)} onClick={sign.speak}>
+                    <Volume2 size={13} /> Speak
+                  </button>
+                  <button style={s.pillBtn(t.surface2, t.muted)} onClick={sign.undoLastLetter}>
+                    <Delete size={13} /> Undo
+                  </button>
+                  <button style={s.pillBtn(t.surface2, t.muted)} onClick={sign.clearSentence}>
+                    <RotateCcw size={13} /> Clear
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button style={s.pillBtn(t.accentBg, t.accent)} onClick={word.speak}>
+                    <Volume2 size={13} /> Speak
+                  </button>
+                  <button style={s.pillBtn(t.surface2, t.muted)} onClick={word.undoLastWord}>
+                    <Delete size={13} /> Undo
+                  </button>
+                  <button style={s.pillBtn(t.surface2, t.muted)} onClick={word.clearSentence}>
+                    <RotateCcw size={13} /> Clear
+                  </button>
+                </>
+              )}
             </div>
           </div>
           <div style={s.captionBox}>
-            <p style={s.captionText}>
-              {sign.sentence || <span style={{ color: t.faint }}>Start signing to see text appear...</span>}
-              {sign.sentence && <span style={{ opacity: cursorOn ? 1 : 0, color: t.accent }}>|</span>}
-            </p>
-            <div style={{ ...s.captionUnderline, width: `${sign.confidence * 100}%`, background: confColor }} />
+            {mode === "letter" ? (
+              <p style={s.captionText}>
+                {sign.sentence || <span style={{ color: t.faint }}>Start signing to see text appear...</span>}
+                {sign.sentence && <span style={{ opacity: cursorOn ? 1 : 0, color: t.accent }}>|</span>}
+              </p>
+            ) : (
+              <p style={s.captionText}>
+                {word.sentence || <span style={{ color: t.faint }}>Show your hand and sign a word...</span>}
+                {word.sentence && <span style={{ opacity: cursorOn ? 1 : 0, color: t.accent }}>|</span>}
+              </p>
+            )}
+            <div style={{
+              ...s.captionUnderline,
+              width: `${(mode === "letter" ? sign.confidence : word.wordConfidence) * 100}%`,
+              background: mode === "letter" ? confColor : wordConfColor,
+            }} />
           </div>
         </div>
 
         <div style={s.card}>
-          <p style={s.label}>Recent gesture log</p>
+          <p style={s.label}>{mode === "letter" ? "Recent gesture log" : "Recent word log"}</p>
           <div>
-            {sign.log.length === 0 && <p style={s.empty}>No signs confirmed yet — hold a sign steady for it to register.</p>}
-            {sign.log.map((row, i) => (
-              <div key={i} style={s.logRow(i === 0)}>
-                <span style={s.logTime}>{row.time}</span>
-                <span style={s.logSign}>{row.sign}</span>
-                <span style={s.logConf(row.conf > 0.85 ? t.success : t.accent, row.conf > 0.85 ? t.successBg : t.accentBg)}>
-                  {Math.round(row.conf * 100)}%
-                </span>
-              </div>
-            ))}
+            {mode === "letter" ? (
+              <>
+                {sign.log.length === 0 && <p style={s.empty}>No signs confirmed yet — hold a sign steady for it to register.</p>}
+                {sign.log.map((row, i) => (
+                  <div key={i} style={s.logRow(i === 0)}>
+                    <span style={s.logTime}>{row.time}</span>
+                    <span style={s.logSign}>{row.sign}</span>
+                    <span style={s.logConf(row.conf > 0.85 ? t.success : t.accent, row.conf > 0.85 ? t.successBg : t.accentBg)}>
+                      {Math.round(row.conf * 100)}%
+                    </span>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <>
+                {word.log.length === 0 && <p style={s.empty}>No words confirmed yet — show a sign to the camera and hold it steady.</p>}
+                {word.log.map((row, i) => (
+                  <div key={i} style={s.logRow(i === 0)}>
+                    <span style={s.logTime}>{row.time}</span>
+                    <span style={s.logSign}>{row.sign}</span>
+                    <span style={s.logConf(row.conf > 0.85 ? t.success : t.accent, row.conf > 0.85 ? t.successBg : t.accentBg)}>
+                      {Math.round(row.conf * 100)}%
+                    </span>
+                  </div>
+                ))}
+              </>
+            )}
           </div>
         </div>
 
         <p style={s.footer}>
-          {sign.connected ? "Connected to backend — live predictions" : "Backend not connected — start the Flask server on port 5000"}
+          {activeConnected ? "Connected to backend — live predictions" : "Backend not connected — start the Flask server on port 5000"}
         </p>
       </div>
     </div>
