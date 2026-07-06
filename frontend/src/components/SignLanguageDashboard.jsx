@@ -42,9 +42,9 @@ export default function SignLanguageDashboard() {
   // Bridge: useSignDetection's MediaPipe loop calls window.__wordModePushFrame
   // on every frame (see useSignDetection.js), which feeds word mode's rolling buffer.
   useEffect(() => {
-    window.__wordModePushFrame = word.pushFrame;
+    window.__wordModePushFrame = mode === "word" ? word.pushFrame : null;
     return () => { window.__wordModePushFrame = null; };
-  }, [word.pushFrame]);
+  }, [word.pushFrame, mode]);
 
   const confColor = sign.confidence > 0.85 ? t.success : sign.confidence > 0.7 ? t.accent : t.alert;
   const avgConfidence = sign.log.length

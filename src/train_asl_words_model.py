@@ -39,8 +39,12 @@ callbacks = [
     tf.keras.callbacks.ReduceLROnPlateau(patience=6, factor=0.5),
 ]
 
+classes, counts = np.unique(y_train, return_counts=True)
+total = len(y_train)
+class_weight = {int(c): total / (len(classes) * cnt) for c, cnt in zip(classes, counts)}
+
 model.fit(X_train, y_train, validation_data=(X_val, y_val),
-          epochs=150, batch_size=16, callbacks=callbacks)
+          epochs=150, batch_size=16, callbacks=callbacks, class_weight=class_weight)
 
 val_loss, val_acc = model.evaluate(X_val, y_val)
 print(f"Final validation accuracy: {val_acc:.4f}")

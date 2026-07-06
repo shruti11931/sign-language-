@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { io } from "socket.io-client";
 
 const BACKEND_URL = "http://localhost:5000";
-const STABLE_FRAMES_REQUIRED = 4;
+const STABLE_FRAMES_REQUIRED = 3;
 const MIN_CONFIDENCE = 0.7;
 const ACCENT_COLOR = "#E8A33D";
 
@@ -26,6 +26,7 @@ export function useSignDetection(canvasRef) {
   const recentPredictionsRef = useRef([]);
   const lastConfirmedRef = useRef(null);
   const frameTimesRef = useRef([]);
+  const letterFrameCounterRef = useRef(0);
 
   const [connected, setConnected] = useState(false);
   const [running, setRunning] = useState(true);
@@ -119,7 +120,7 @@ export function useSignDetection(canvasRef) {
     });
     hands.setOptions({
       maxNumHands: 1,
-      modelComplexity: 1,
+      modelComplexity: 0,
       minDetectionConfidence: 0.7,
       minTrackingConfidence: 0.7,
       selfieMode: true,
@@ -143,7 +144,8 @@ export function useSignDetection(canvasRef) {
         drawLandmarks(ctx, landmarks, { color: ACCENT_COLOR, radius: 3 });
         setHandDetected(true);
 
-        if (socketRef.current?.connected && running) {
+        letterFrameCounterRef.current += 1;
+        if (socketRef.current?.connected && running && letterFrameCounterRef.current % 2 === 0) {
           const points = landmarks.map((p) => [p.x, p.y, p.z]);
           socketRef.current.emit("frame", { landmarks: points });
         }
