@@ -1,3 +1,4 @@
+# Python dependencies for the sign-language project
 flask==3.0.3
 flask-cors==4.0.1
 flask-socketio==5.3.6
@@ -7,3 +8,4 @@ tensorflow==2.16.1
 opencv-python==4.10.0.84
 numpy==1.26.4
 pandas==2.2.2
+scikit-learn==1.5.2
