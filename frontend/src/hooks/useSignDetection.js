@@ -20,7 +20,7 @@ const HAND_CONNECTIONS = [
   [5, 9], [9, 13], [13, 17],
 ];
 
-export function useSignDetection(canvasRef) {
+export function useSignDetection(canvasRef, mode) {
   const videoRef = useRef(document.createElement("video"));
   const socketRef = useRef(null);
   const recentPredictionsRef = useRef([]);
@@ -145,13 +145,9 @@ export function useSignDetection(canvasRef) {
         setHandDetected(true);
 
         letterFrameCounterRef.current += 1;
-        if (socketRef.current?.connected && running && letterFrameCounterRef.current % 2 === 0) {
+        if (mode === "letter" && socketRef.current?.connected && running && letterFrameCounterRef.current % 2 === 0) {
           const points = landmarks.map((p) => [p.x, p.y, p.z]);
           socketRef.current.emit("frame", { landmarks: points });
-        }
-        // Bridge to word-mode recording, if active (see SignLanguageDashboard.jsx)
-        if (window.__wordModePushFrame) {
-          window.__wordModePushFrame(landmarks);
         }
       } else {
         setHandDetected(false);
@@ -177,7 +173,7 @@ export function useSignDetection(canvasRef) {
       camera.stop();
       hands.close();
     };
-  }, [canvasRef, running]);
+  }, [canvasRef, running, mode]);
 
   const clearSentence = useCallback(() => setSentence(""), []);
   const undoLastLetter = useCallback(() => setSentence((s) => s.slice(0, -1)), []);

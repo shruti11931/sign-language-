@@ -29,7 +29,7 @@ export default function SignLanguageDashboard() {
 
   const [mode, setMode] = useState("letter"); // "letter" | "word"
 
-  const sign = useSignDetection(canvasRef);
+  const sign = useSignDetection(canvasRef, mode);
   const word = useWordDetection();
 
   const [cursorOn, setCursorOn] = useState(true);
