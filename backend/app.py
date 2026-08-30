@@ -20,12 +20,12 @@ from predict_words import WordPredictor
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "asl-translator-dev"
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app, resources={r"/*": {"origins": "https://sign-language-sable.vercel.app"}})
 socketio = SocketIO(
     app,
-    cors_allowed_origins="*",
-    ping_timeout=60,      # how long to wait for a pong before giving up (default 20s)
-    ping_interval=25,     # how often to ping (default 25s, fine to keep)
+    cors_allowed_origins="https://sign-language-sable.vercel.app",
+    ping_timeout=60,
+    ping_interval=25,
 )
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "asl_model.h5")
