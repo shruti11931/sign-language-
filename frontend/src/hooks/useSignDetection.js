@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { io } from "socket.io-client";
 
-const BACKEND_URL = "http://localhost:5000";
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
 const STABLE_FRAMES_REQUIRED = 3;
 const MIN_CONFIDENCE = 0.7;
 const ACCENT_COLOR = "#E8A33D";

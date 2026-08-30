@@ -8,7 +8,7 @@
 import { useRef, useState, useCallback } from "react";
 import { io } from "socket.io-client";
 
-const BACKEND_URL = "http://localhost:5000";
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
 const SEQ_LEN = 30;
 const PREDICT_EVERY_N_FRAMES = 3; // throttle how often we ask the backend
 const STABLE_REPEATS_NEEDED = 2;  // keep at 2 - going to 1 risks single-frame misfiresword must repeat this many predictions in a row
