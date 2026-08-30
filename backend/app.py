@@ -8,7 +8,8 @@ Run with:
     python app.py
 Server listens on http://localhost:5000
 """
-
+import eventlet
+eventlet.monkey_patch()
 import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
