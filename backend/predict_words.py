@@ -41,11 +41,7 @@ class WordPredictor:
             self.label_map = {"0": "hello", "1": "yes", "2": "no"}
 
     def predict(self, sequence):
-        """
-        sequence: list of 30 frames, each a list of 63 floats
-                  (exactly what useWordDetection.js buffers and sends)
-        returns: (word: str, confidence: float) or (None, confidence) if below threshold
-        """
+        
         if self.model is None:
             import random
             word = random.choice(list(self.label_map.values()))
