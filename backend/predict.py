@@ -12,6 +12,8 @@ import json
 import numpy as np
 import tensorflow as tf
 
+from normalize_utils import normalize_landmarks
+
 
 class Predictor:
     def __init__(self, model_path, label_map_path, conf_threshold=0.55):
@@ -45,6 +47,8 @@ class Predictor:
         flat = []
         for point in landmarks:
             flat.extend([float(point[0]), float(point[1]), float(point[2])])
+
+        flat = normalize_landmarks(flat)
         x = np.array(flat, dtype=np.float32).reshape(1, -1)
 
         preds = self.model.predict(x, verbose=0)[0]

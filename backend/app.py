@@ -28,7 +28,7 @@ socketio = SocketIO(
     ping_interval=25,
 )
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "asl_model.h5")
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "asl_model_v2.h5")
 LABEL_MAP_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "asl_label_map.json")
 
 predictor = Predictor(model_path=MODEL_PATH, label_map_path=LABEL_MAP_PATH)

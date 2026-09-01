@@ -10,7 +10,7 @@ import numpy as np
 import tensorflow as tf
 from sklearn.model_selection import train_test_split
 
-X = np.load("data/asl_X.npy")
+X = np.load("data/asl_X_normalized.npy")
 y = np.load("data/asl_y.npy")
 
 with open("models/asl_label_map.json") as f:
@@ -57,5 +57,5 @@ val_loss, val_acc = model.evaluate(X_val, y_val)
 print(f"[train_asl] final validation accuracy: {val_acc:.4f}")
 
 os.makedirs("models", exist_ok=True)
-model.save("models/asl_model.h5")
-print("[train_asl] saved models/asl_model.h5")
+model.save("models/asl_model_v2.h5")
+print("[train_asl] saved models/asl_model_v2.h5")
