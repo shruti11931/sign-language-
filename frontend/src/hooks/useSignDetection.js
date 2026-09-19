@@ -7,9 +7,12 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { io } from "socket.io-client";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
-const STABLE_FRAMES_REQUIRED = 3;
 const MIN_CONFIDENCE = 0.7;
 const ACCENT_COLOR = "#E8A33D";
+const WINDOW_SIZE = 8;
+const MAJORITY_NEEDED = 6;
+const NO_HAND_RESET_FRAMES = 8;
+const INFLIGHT_TIMEOUT_MS = 1000;
 
 const HAND_CONNECTIONS = [
   [0, 1], [1, 2], [2, 3], [3, 4],
@@ -27,6 +30,8 @@ export function useSignDetection(canvasRef, mode) {
   const lastConfirmedRef = useRef(null);
   const frameTimesRef = useRef([]);
   const letterFrameCounterRef = useRef(0);
+  const inflightSinceRef = useRef(0);
+  const noHandFramesRef = useRef(0);
 
   const [connected, setConnected] = useState(false);
   const [running, setRunning] = useState(true);
@@ -48,22 +53,14 @@ export function useSignDetection(canvasRef, mode) {
       timeout: 20000,
     });
 
-
     socketRef.current = socket;
 
     socket.on("connect", () => setConnected(true));
     socket.on("disconnect", () => setConnected(false));
 
     socket.on("prediction", ({ letter, confidence: conf }) => {
+      inflightSinceRef.current = 0; // server answered, allow next frame
       if (!letter) return;
-
-      setCurrentSign(letter);
-      setConfidence(conf);
-
-      // Rolling window majority vote — tolerates a few flicker frames
-      // instead of resetting to zero on any single differing prediction.
-      const WINDOW_SIZE = 6;
-      const MAJORITY_NEEDED = 4;
 
       recentPredictionsRef.current.push({ letter, conf });
       if (recentPredictionsRef.current.length > WINDOW_SIZE) {
@@ -76,11 +73,17 @@ export function useSignDetection(canvasRef, mode) {
       }
       const [topLetter, topCount] = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
 
-      if (
-        topCount >= MAJORITY_NEEDED &&
-        conf > MIN_CONFIDENCE &&
-        topLetter !== lastConfirmedRef.current
-      ) {
+      // Not enough agreement yet -> keep showing the previous stable sign
+      if (topCount < MAJORITY_NEEDED) return;
+
+      const agreeing = recentPredictionsRef.current.filter((p) => p.letter === topLetter);
+      const avgConf = agreeing.reduce((s, p) => s + p.conf, 0) / agreeing.length;
+
+      // Display only the stable sign, never the raw per-frame one
+      setCurrentSign(topLetter);
+      setConfidence(avgConf);
+
+      if (avgConf > MIN_CONFIDENCE && topLetter !== lastConfirmedRef.current) {
         if (topLetter === "space") {
           setSentence((s) => (s + " ").slice(-40));
         } else if (topLetter === "del") {
@@ -90,16 +93,19 @@ export function useSignDetection(canvasRef, mode) {
         }
         setTotalSigns((n) => n + 1);
         setLog((prev) => [
-          { time: new Date().toTimeString().slice(0, 8), sign: topLetter, conf },
+          { time: new Date().toTimeString().slice(0, 8), sign: topLetter, conf: avgConf },
           ...prev,
         ].slice(0, 6));
 
         lastConfirmedRef.current = topLetter;
-        recentPredictionsRef.current = []; // reset window after confirming
+        recentPredictionsRef.current = [];
       }
     });
 
-    socket.on("prediction_error", (err) => console.warn("[prediction_error]", err));
+    socket.on("prediction_error", (err) => {
+      inflightSinceRef.current = 0;
+      console.warn("[prediction_error]", err);
+    });
 
     return () => socket.disconnect();
   }, []);
@@ -143,14 +149,36 @@ export function useSignDetection(canvasRef, mode) {
         drawConnectors(ctx, landmarks, HAND_CONNECTIONS, { color: ACCENT_COLOR, lineWidth: 2 });
         drawLandmarks(ctx, landmarks, { color: ACCENT_COLOR, radius: 3 });
         setHandDetected(true);
+        noHandFramesRef.current = 0;
 
         letterFrameCounterRef.current += 1;
-        if (mode === "letter" && socketRef.current?.connected && running && letterFrameCounterRef.current % 2 === 0) {
+        const inflight =
+          inflightSinceRef.current && now - inflightSinceRef.current < INFLIGHT_TIMEOUT_MS;
+
+        if (
+          mode === "letter" &&
+          socketRef.current?.connected &&
+          running &&
+          letterFrameCounterRef.current % 2 === 0 &&
+          !inflight // drop frames while server is still busy
+        ) {
           const points = landmarks.map((p) => [p.x, p.y, p.z]);
+          inflightSinceRef.current = now;
           socketRef.current.emit("frame", { landmarks: points });
         }
       } else {
         setHandDetected(false);
+        noHandFramesRef.current += 1;
+
+        // Hand really gone (not just a dropped frame): reset so the same
+        // letter can be signed again and the display clears.
+        if (noHandFramesRef.current === NO_HAND_RESET_FRAMES) {
+          recentPredictionsRef.current = [];
+          lastConfirmedRef.current = null;
+          inflightSinceRef.current = 0;
+          setCurrentSign(null);
+          setConfidence(0);
+        }
       }
 
       // Fires every frame, hand or no hand — matches how collect_asl_words.py

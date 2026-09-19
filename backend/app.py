@@ -20,10 +20,15 @@ from predict_words import WordPredictor
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "asl-translator-dev"
-CORS(app, resources={r"/*": {"origins": "https://sign-language-sable.vercel.app"}})
+ALLOWED_ORIGINS = [
+    "https://sign-language-sable.vercel.app",
+    "http://localhost:5173",
+]
+
+CORS(app, resources={r"/*": {"origins": ALLOWED_ORIGINS}})
 socketio = SocketIO(
     app,
-    cors_allowed_origins="https://sign-language-sable.vercel.app",
+    cors_allowed_origins=ALLOWED_ORIGINS,
     ping_timeout=60,
     ping_interval=25,
 )
