@@ -9,8 +9,8 @@ import { io } from "socket.io-client";
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
 const MIN_CONFIDENCE = 0.7;
 const ACCENT_COLOR = "#E8A33D";
-const WINDOW_SIZE = 5;
-const MAJORITY_NEEDED = 3;
+const WINDOW_SIZE = 6;
+const MAJORITY_NEEDED = 4;
 const INFLIGHT_TIMEOUT_MS = 600;
 const NO_HAND_RESET_FRAMES = 8;
 
@@ -61,7 +61,7 @@ export function useSignDetection(canvasRef, mode) {
 
     socket.on("prediction", ({ letter, confidence: conf }) => {
       inflightSinceRef.current = 0; // server answered, allow next frame
-      console.log("pred", letter, conf); 
+      
       if (!letter) return;
 
       recentPredictionsRef.current.push({ letter, conf });
